@@ -62,9 +62,10 @@ def port_scanner(ip:str,port:int) -> int:
         #returns zero if successful
         return s.connect_ex((ip, port))
 
-from scapy.all import PcapReader
-def ip_pcap_parser(path:str,ip:str) -> list:
+####### work in progress
+#from scapy.all import PcapReader
+#def ip_pcap_parser(path:str,ip:str) -> list:
 
-    with PcapReader('path') as reader:
+#    with PcapReader('path') as reader:
 
 
